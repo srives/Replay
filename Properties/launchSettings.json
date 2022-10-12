@@ -1,0 +1,12 @@
+{
+  "profiles": {
+    "Replay": {
+      "commandName": "Project",
+      "commandLineArgs": "33110",
+      "environmentVariables": {
+        "Environment": "Production",
+        "ASPNETCORE_ENVIRONMENT": "Production"
+      }
+    }
+  }
+}
