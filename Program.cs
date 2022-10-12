@@ -78,6 +78,7 @@ namespace Replay
 
             _services = services.BuildServiceProvider();
         }
+
         static async Task<List<Telemetry>> GetUnfinishedEventsAsync(TelemetryRepo telemetryRepo, int jobId)
         {
             var unfinishedEvents = new List<Telemetry>();

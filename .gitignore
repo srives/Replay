@@ -31,7 +31,6 @@ bld/
 *.min.js
 *.min.js.map
 site.min.css
-launchSettings.json
 # Visual Studio 2017 auto generated files
 Generated\ Files/
 
@@ -60,7 +59,6 @@ project.lock.json
 project-lock.json
 project.fragment.lock.json
 artifacts/
-#**/Properties/launchSettings.json
 
 # StyleCop
 StyleCopReport.xml
