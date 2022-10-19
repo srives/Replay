@@ -9,6 +9,7 @@ using STRATUS.CAD.Models.TelemetryModels;
 using STRATUS.CAD.Repos;
 using STRATUS.CAD.Repos.SQL;
 using STRATUS.CAD.Services;
+using STRATUS.CAD.Services.AzureServices;
 using STRATUS.CAD.Services.PipelineServices;
 using STRATUS.CAD.StartupResources;
 using System;
@@ -54,6 +55,14 @@ namespace Replay
                 var orchestrationService = _services.GetRequiredService<OrchestrationService>();
                 // var telemetryRepo = _services.GetRequiredService<TelemetryRepo>(); // I did use the TelemetryRepo, but I couldn't check in my code with it, so using my own Service (SQL
                 var sql = _services.GetRequiredService<SQLConnectionString>();
+                var block = _services.GetRequiredService<BlockBlobService>();
+
+                /*
+                FileStream testStream = new FileStream(
+                // Upload a bunch of files, and see if (base 64, UUEncoded files breaks? Code that writes blocks can't handle)
+                await block.UploadAsync(Guid.Parse("02ff41d0-c462-4fd3-b4bb-d761172c3148"),
+                "https://modeldataqa.blob.core.windows.net/02ff41d0-c462-4fd3-b4bb-d761172c3148/fabconfig/Fabrication2022-TweetGarot/db_items_images_items.zip", testStream);
+                */
 
                 var events = await GetUnfinishedEventsAsync(sql.ConnectionString, null, jobId);
                 if (events?.Count() > 0)
@@ -142,9 +151,17 @@ namespace Replay
         public static async Task<List<Telemetry>> GetUnfinishedEventsAsync(string connectionString, TelemetryRepo telemetryRepo, int jobId)
         {
             var unfinishedEvents = new List<Telemetry>();
+            var what = "PreloadCheckpoint";
 
             // PreloadCheckpoint logs the files that it is waiting for
-            var telemetry = await GetNewestMessageLikeAsync(connectionString, jobId, "%PreloadCheckpoint waiting on files:%"); 
+            var telemetry = await GetNewestMessageLikeAsync(connectionString, jobId, $"%{what} waiting on files:%");
+
+            if (telemetry == null)
+            {
+                what = "CommitModelService";
+                telemetry = await GetNewestMessageLikeAsync(connectionString, jobId, $"%{what} waiting on files:%");
+            }
+
             if (telemetry == null)
             {
                 return unfinishedEvents;
@@ -154,13 +171,18 @@ namespace Replay
             var files = telemetry.Message.Split(new char[] { ',', ':' });
             foreach(var part in files)
             {
-                if (part.Contains("PreloadCheckpoint")) continue;
+                if (part.Contains(what)) continue;
                 var file = part.Trim().TrimEnd('.');
+                Console.Write(file);
                 telemetry = await GetNewestMessageLikeAsync(connectionString, jobId, $"%{file}%", 27); // 27 is the JsonToDocumentDB Definition ID we care about
                 if (telemetry != null)
                 {
-                    Console.WriteLine($"Preload Checkpoint is Waiting on File: {file} from JsonToDocumentDb with EventId = {telemetry.ActivityEventId}.");
+                    Console.WriteLine($": {what} is Waiting on File: {file} from JsonToDocumentDb with EventId = {telemetry.ActivityEventId}.");
                     unfinishedEvents.Add(telemetry);
+                }
+                else
+                {
+                    Console.WriteLine($": There is no notice of JsonToDocumentDb (ActivityDefinitionId = 27) having procssed this file, therefore it cannot be replayed.");
                 }
             }
             return unfinishedEvents;
