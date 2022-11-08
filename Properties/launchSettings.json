@@ -2,10 +2,11 @@
   "profiles": {
     "Replay": {
       "commandName": "Project",
-      "commandLineArgs": "33849",
+      "commandLineArgs": "-user 798f1c37-4a61-4e41-a433-fb3cd23c1b7c",
       "environmentVariables": {
-        "Environment": "Production",
-        "ASPNETCORE_ENVIRONMENT": "Production"
+        "Environment": "QA",
+        "ASPNETCORE_ENVIRONMENT": "QA",
+        "QA__MongoDB__ConnectionString": "mongodb+srv://stratuscad-qa.onttl.mongodb.net/?retryWrites=true&w=majority&authMechanism=SCRAM-SHA-1"
       }
     }
   }
