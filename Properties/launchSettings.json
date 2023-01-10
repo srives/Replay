@@ -2,7 +2,7 @@
   "profiles": {
     "Replay": {
       "commandName": "Project",
-      "commandLineArgs": "-user 798f1c37-4a61-4e41-a433-fb3cd23c1b7c",
+      "commandLineArgs": "42713",
       "environmentVariables": {
         "Environment": "QA",
         "ASPNETCORE_ENVIRONMENT": "QA",

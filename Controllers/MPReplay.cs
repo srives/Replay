@@ -1,11 +1,15 @@
 ﻿using Dapper;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using MongoDB.Driver;
 using STRATUS.CAD.Models.Enums;
 using STRATUS.CAD.Models.PipelineModels;
 using STRATUS.CAD.Models.TelemetryModels;
+using STRATUS.CAD.Repos.MONGO;
+using STRATUS.CAD.Repos.MONGO.StratusDatabaseRepos;
 using STRATUS.CAD.Repos.SQL;
 using STRATUS.CAD.Services.PipelineServices;
+using STRATUS.CAD.Services.StratusServices;
 using System;
 using System.Collections.Generic;
 using System.Data.SqlClient;
@@ -18,10 +22,13 @@ namespace Replay.Controllers
     {
         public static IConfigurationRoot _config = null;
         public static ServiceProvider _services = null;
+        public static IMongoDatabase _master = null;
+        public static IMongoDatabase _scad = null;
+        public static IMongoCollection<TelemetryTS> _telemetry = null;
 
         public static int Usage(int errorCode)
         {
-            Console.WriteLine("Usage: Replay <Job Id>");
+            Console.WriteLine("Usage: Replay <Job Id> [-az]");
             Console.WriteLine("       GTP Model Pipeline Replay Tool");
             Console.WriteLine("       This program will replay the JsonToDocumentDB jobs that are causing a stall in PreloadCheckpoin.");
             Console.WriteLine("       Defaults to production. To change this to QA from the command line, run: Set Environment=QA");
@@ -35,6 +42,12 @@ namespace Replay.Controllers
             _config = config;
             _services = services;
 
+            var mongoProvider = _services.GetRequiredService<MongoDatabaseProvider>();
+            // _telemetryRepo = _services.GetRequiredService<TelemetryRepo>();
+            _master = mongoProvider.MasterDatabase();
+            _scad = mongoProvider.StratusCadDatabase();
+            _telemetry = _scad.GetCollection<TelemetryTS>(nameof(TelemetryTS));
+
             if (args?.Length != 1) return Usage(1);
             if (!int.TryParse(args[0], out var jobId)) return Usage(2);
 
@@ -44,21 +57,21 @@ namespace Replay.Controllers
                 // var telemetryRepo = _services.GetRequiredService<TelemetryRepo>();
                 var orchestrationService = _services.GetRequiredService<OrchestrationService>();
                 var sql = _services.GetRequiredService<SQLConnectionString>();
-                var events = await GetUnfinishedEventsAsync(sql.ConnectionString, null, jobId);
+                var events = await GetUnfinishedEventsAsync(jobId);
                 if (events?.Count() > 0)
                 {
                     foreach (var item in events)
                     {
                         var replayRequest = new ReplayRequest
                         {
-                            ActivityDefinitionId = item.ActivityDefinitionId, // JsonToDocumentDB
-                            ActivityEventId = item.ActivityEventId, // e.g., 10554188, gotten FROM [dbo].[Telemetry] where JobId=<abc> and (Message like '%<fname>%' and ActivityDefintionId=27) 
+                            ActivityDefinitionId = item.Meta.ActivityDefinitionId, // JsonToDocumentDB
+                            ActivityEventId = item.Meta.ActivityEventId, // e.g., 10554188, gotten FROM [dbo].[Telemetry] where JobId=<abc> and (Message like '/<fname>/' and ActivityDefintionId=27) 
                             DbCreateDateTime = DateTime.UtcNow,
                             Id = 0,
                             JobId = jobId,
                             ReplayRequestType = ReplayRequestType.IsolatedEvent,
                             RequestDateTime = DateTime.UtcNow,
-                            RequestedByUserId = Environment.UserName
+                            RequestedByUserId = Environment.UserName                            
                         };
 
                         var replay = orchestrationService.StartReplayAsync(replayRequest);
@@ -83,7 +96,7 @@ namespace Replay.Controllers
                 var replayRequest1 = new ReplayRequest
                 {
                     ActivityDefinitionId = 33, // JsonToDocumentDB
-                    ActivityEventId = 10896402, // e.g., 10554188, gotten FROM [dbo].[Telemetry] where JobId=<abc> and (Message like '%<fname>%' and ActivityDefintionId=27) 
+                    ActivityEventId = 10896402, // e.g., 10554188, gotten FROM [dbo].[Telemetry] where JobId=<abc> and (Message like '/<fname>/' and ActivityDefintionId=27) 
                     DbCreateDateTime = DateTime.UtcNow,
                     Id = 0,
                     JobId = 34675,
@@ -111,7 +124,7 @@ namespace Replay.Controllers
             var replayRequest = new ReplayRequest
             {
                 ActivityDefinitionId = 33, // JsonToDocumentDB
-                ActivityEventId = 10896402, // e.g., 10554188, gotten FROM [dbo].[Telemetry] where JobId=<abc> and (Message like '%<fname>%' and ActivityDefintionId=27) 
+                ActivityEventId = 10896402, // e.g., 10554188, gotten FROM [dbo].[Telemetry] where JobId=<abc> and (Message like '/<fname>/' and ActivityDefintionId=27) 
                 DbCreateDateTime = DateTime.UtcNow,
                 Id = 0,
                 JobId = 34675,
@@ -122,49 +135,60 @@ namespace Replay.Controllers
 
         }
 
-        public static async Task<Telemetry> GetNewestMessageLikeAsync(string connectionString, int jobId, string likeThis, int activityDefinitionId = -1)
+        public static string Msg()
         {
-            Telemetry answer = null;
-            using (var conn = new SqlConnection(connectionString))
-            {
-                var query = $@"SELECT top(1)
-                                      [Id]
-                                    , [ActivityEventId]
-                                    , [ActivityDefinitionId]
-                                    , [Message]
-                                    , [TelemetryTypeId]
-                                    , [Exception]
-                                    , [CreateDateTime]
-                                    , [DbCreateDateTime]
-                                    , [SourceSystemTypeId]
-                            FROM    [dbo].[Telemetry] WITH (NOLOCK)
-                            WHERE   [JobId] = {jobId} AND [Message] LIKE '{likeThis}'";
+            return "CommitModelService waiting on files: element-batch-fab-0005.jsonz, propertydefinition-batch-fab-0005.jsonz.";
+        }
 
-                if (activityDefinitionId != -1)
-                {
-                    query += $" AND [ActivityDefinitionId] = {activityDefinitionId}";
-                }
-                query += " ORDER BY [CreateDateTime] desc";
-
-                await conn.OpenAsync();
-                var result = await conn.QueryAsync<Telemetry>(query);
-                answer = result?.ToList().FirstOrDefault();
-            }
+        public static async Task<TelemetryTS> never(int jobId, string likeThis, int activityDefinitionId = -1)
+        {
+            TelemetryTS answer = new TelemetryTS();
+            answer.Message = Msg();
+            /*
+            answer.ActivityDefinitionId = 44;
+            answer.ActivityEventId = 0;
+            answer.SourceSystemTypeId = 9;
+            */
+            
             return answer;
         }
 
-        public static async Task<List<Telemetry>> GetUnfinishedEventsAsync(string connectionString, TelemetryRepo telemetryRepo, int jobId)
+        public static async Task<TelemetryTS> GetNewestMessageLikeAsync(int jobId, string likeThis, int activityDefinitionId = -1)
         {
-            var unfinishedEvents = new List<Telemetry>();
+            var builder = Builders<TelemetryTS>.Filter;
+            FilterDefinition<TelemetryTS> filter = builder.Empty;
+
+            if (activityDefinitionId == -1)
+            {
+                filter = builder.Eq($"{nameof(TelemetryTS.Meta)}.{nameof(TelemetryMeta.JobId)}", jobId);
+            }
+            else
+            {
+                filter = builder.And(
+                    Builders<TelemetryTS>.Filter.Eq($"{nameof(TelemetryTS.Meta)}.{nameof(TelemetryMeta.JobId)}", jobId),
+                    Builders<TelemetryTS>.Filter.Eq($"{nameof(TelemetryTS.Meta)}.{nameof(TelemetryTS.Meta.ActivityDefinitionId)}", activityDefinitionId));
+            }
+
+            var tts = await _telemetry.Find(filter).SortByDescending(t => t.CreatedDT).ToListAsync();
+            // Note well, I could NOT get any Mongo RegEx to work in C#, and I tried four ways, so I am just using Linq
+            var llower = likeThis.ToLower();
+            var answer = tts.Where(s => s.Message != null && s.Message.ToLower().Contains(llower)).FirstOrDefault();
+
+            return answer;
+        }
+
+        public static async Task<List<TelemetryTS>> GetUnfinishedEventsAsync(int jobId)
+        {
+            var unfinishedEvents = new List<TelemetryTS>();
             var what = "PreloadCheckpoint";
 
             // PreloadCheckpoint logs the files that it is waiting for
-            var telemetry = await GetNewestMessageLikeAsync(connectionString, jobId, $"%{what} waiting on files:%");
+            var telemetry = await GetNewestMessageLikeAsync(jobId, $"{what} waiting on files:");
 
             if (telemetry == null)
             {
                 what = "CommitModelService";
-                telemetry = await GetNewestMessageLikeAsync(connectionString, jobId, $"%{what} waiting on files:%");
+                telemetry = await GetNewestMessageLikeAsync(jobId, $"{what} waiting on files:");
             }
 
             if (telemetry == null)
@@ -179,10 +203,10 @@ namespace Replay.Controllers
                 if (part.Contains(what)) continue;
                 var file = part.Trim().TrimEnd('.');
                 Console.Write(file);
-                telemetry = await GetNewestMessageLikeAsync(connectionString, jobId, $"%{file}%", 27); // 27 is the JsonToDocumentDB Definition ID we care about
+                telemetry = await GetNewestMessageLikeAsync(jobId, $"{file}", 27); // 27 is the JsonToDocumentDB Definition ID we care about
                 if (telemetry != null)
                 {
-                    Console.WriteLine($": {what} is Waiting on File: {file} from JsonToDocumentDb with EventId = {telemetry.ActivityEventId}.");
+                    Console.WriteLine($": {what} is Waiting on File: {file} from JsonToDocumentDb with EventId = {telemetry.Meta.ActivityEventId}.");
                     unfinishedEvents.Add(telemetry);
                 }
                 else

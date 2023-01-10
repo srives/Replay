@@ -14,7 +14,7 @@ using MongoDB.Driver;
 
 namespace Replay.Controllers
 {
-    public class User
+    public class Mongo
     {
         public static IConfigurationRoot _config = null;
         public static ServiceProvider _services = null;
@@ -22,7 +22,7 @@ namespace Replay.Controllers
 
         public static int Usage(int errorCode)
         {
-            Console.WriteLine("Usage: -user <<AzureADId> | <GTP UserId>>");
+            Console.WriteLine("Usage: -mongo <<AzureADId> | <GTP UserId>>");
             Console.WriteLine("       Call Model Pipeline function endpoints to get the user.");
             return errorCode;
         }
@@ -42,8 +42,7 @@ namespace Replay.Controllers
             con = "mongodb+srv://gtp-user:ltkuev1sXmYXBgC3@qa.onttl.azure.mongodb.net/?retryWrites=true&w=majority&authMechanism=SCRAM-SHA-1";
             MongoClient dbClient = new MongoClient(con);
             var master = dbClient.GetDatabase("Master");
-
-            /*
+            
             var dbList = dbClient.ListDatabases().ToList();
 
             Console.WriteLine("The list of databases on this server is: ");
@@ -57,7 +56,8 @@ namespace Replay.Controllers
             {
                 Console.WriteLine(collection.ToString());
             }
-            */
+
+            Console.WriteLine("-----------------------------------------------------");
             return master;
         }
 
@@ -93,8 +93,7 @@ namespace Replay.Controllers
             userService = _services.GetRequiredService<StratusUserService>();
             var mongoProvider = _services.GetRequiredService<MongoDatabaseProvider>();
             var masterDatabase = mongoProvider.MasterDatabase();
-            var scad = mongoProvider.StratusCadDatabase();
-            // masterDatabase = GetMasterDatabase();
+            masterDatabase = GetMasterDatabase();
             // GetUser(masterDatabase, azId);
 
             var jsonResponse = await userService.GetUserJsonAsync(azId, azId);
